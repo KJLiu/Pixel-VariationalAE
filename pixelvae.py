@@ -5,7 +5,7 @@ Ishaan Gulrajani, Kundan Kumar, Faruk Ahmed, Adrien Ali Taiga, Francesco Visin, 
 
 import os, sys
 sys.path.append(os.getcwd())
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+os.environ["CUDA_VISIBLE_DEVICES"] = '2'
 N_GPUS = 1
 
 try: # This only matters on Ishaan's computer
@@ -27,16 +27,17 @@ import tflib.lsun_bedrooms
 import tflib.mnist_256
 import tflib.small_imagenet
 import tflib.cifar10_leave_one_out
+import tflib.celebA
 
 import numpy as np
 import tensorflow as tf
 import scipy.misc
 from scipy.misc import imsave
-
+from tqdm import trange
 import time
 import functools
 
-DATASET = 'lsun_64' # mnist_256, lsun_32, lsun_64, imagenet_64
+DATASET = 'celebA_64'#'lsun_64' # mnist_256, lsun_32, lsun_64, imagenet_64
 SETTINGS = '64px_small' # mnist_256, 32px_small, 32px_big, 64px_small, 64px_big
 
 if SETTINGS == '32px_small':
@@ -282,6 +283,8 @@ elif DATASET == 'lsun_64':
     train_data, dev_data = lib.lsun_bedrooms.load(BATCH_SIZE, downsample=False)
 elif DATASET == 'imagenet_64':
     train_data, dev_data = lib.small_imagenet.load(BATCH_SIZE)
+elif DATASET == 'celebA_64':
+    train_data, dev_data = lib.celebA.load(BATCH_SIZE, downsample=False)
 
 lib.print_model_settings(locals().copy())
 
@@ -833,7 +836,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
             )
 
             print "Generating samples"
-            for y in xrange(HEIGHT):
+            for y in trange(HEIGHT):
                 for x in xrange(WIDTH):
                     for ch in xrange(N_CHANNELS):
                         next_sample = dec1_fn(latents1_copied, samples, ch, y, x)
@@ -849,7 +852,10 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
 
 
     elif MODE == 'two_level':
-
+        def enc_fn(_images):
+            return session.run([latents1, latents2], feed_dict={images: _images, total_iters: 99999, bn_is_training: False, bn_stats_iter:0})
+        
+            
         def dec2_fn(_latents, _targets):
             return session.run([mu1_prior, logsig1_prior], feed_dict={latents2: _latents, latents1: _targets, total_iters: 99999, bn_is_training: False, bn_stats_iter: 0})
 
@@ -868,7 +874,21 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
                                           total_iters: 99999,
                                           bn_is_training: False, 
                                           bn_stats_iter: 0})
+        
 
+
+
+
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import cv2
+        Dataset = 'CelebA'
+        def read_img(path, npx = 64):
+            img = plt.imread(path)
+            if Dataset == 'CelebA':
+                img = img[50:50+128,25:25+128,:] 
+            return cv2.resize(img, dsize=(npx, npx), interpolation=cv2.INTER_AREA).astype('float32')
+       
         N_SAMPLES = BATCH_SIZE
         if N_SAMPLES % N_GPUS != 0:
             raise Exception("N_SAMPLES must be divisible by N_GPUS")
@@ -890,7 +910,99 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
         epsilon_pixels = np.random.uniform(size=(N_SAMPLES, N_CHANNELS, HEIGHT, WIDTH))
         if HOLD_EPSILON_PIXELS_CONSTANT:
           epsilon_pixels[:] = epsilon_pixels[0][None]
+        def KJ_gen_save(tag):
+            IMAGE = 'Multiple'
+            if IMAGE == 'Multiple':
+                train_data, dev_data = lib.celebA.load(BATCH_SIZE, downsample=False)
+                generator = train_data()
+                idx = 1
+                for i in xrange(idx):
+                    _images = generator.next()[0]
+            elif IMAGE == 'Single':
+                n_list = ['23245']
+                # n_list = [str(i) for i in np.random.randint(10000, size=1)]
+                # n_list = ['9657']
+                # n_list = ['870']
+                
+                content_img_paths = ['../../data/CelebA/splits/train/%s.jpg'%n.zfill(6) for n in n_list]
+     
+                img = read_img(content_img_paths[0])
+                _images = img.reshape(1, HEIGHT, WIDTH, N_CHANNELS)
+                _images = _images.transpose([0,3,1,2])
+                _images = np.repeat(_images, N_SAMPLES, axis=0)
 
+            # Encode images to l1 & l2
+            print('Training data batch shape: %s'%(_images.shape,))
+            tag+='_KJ_'
+            l1, l2 = enc_fn(_images)
+            
+            # Draw z1 autoregressively using z2 and epsilon1
+            print "Generating z1"
+            z1 = np.zeros((N_SAMPLES, LATENT_DIM_1, LATENTS1_HEIGHT, LATENTS1_WIDTH), dtype='float32')
+            for y in trange(LATENTS1_HEIGHT):
+              for x in xrange(LATENTS1_WIDTH):
+                z1_prior_mu, z1_prior_logsig = dec2_fn(l2, z1)
+                z1[:,:,y,x] = z1_prior_mu[:,:,y,x] + np.exp(z1_prior_logsig[:,:,y,x]) * epsilon_1[:,:,y,x]
+
+            # Draw pixels (the images) autoregressively using z1 and epsilon_x
+            print "Generating pixels_from_z1"
+            pixels_from_z1 = np.zeros((N_SAMPLES, N_CHANNELS, HEIGHT, WIDTH)).astype('int32')
+            for y in trange(HEIGHT):
+                for x in xrange(WIDTH):
+                    for ch in xrange(N_CHANNELS):
+                        # start_time = time.time()
+                        logits = dec1_logits_fn(z1, pixels_from_z1, ch, y, x)
+                        probs = np.exp(logits - np.max(logits, axis=-1, keepdims=True))
+                        probs = probs / np.sum(probs, axis=-1, keepdims=True)
+                        cdf = np.cumsum(probs, axis=-1)
+                        pixels_from_z1[:,ch,y,x] = np.argmax(cdf >= epsilon_pixels[:,ch,y,x,None], axis=-1)
+                        # print time.time() - start_time
+            # Draw pixels (the images) autoregressively using l1 and epsilon_x
+            print "Generating pixels_from_l1"
+            pixels_from_l1 = np.zeros((N_SAMPLES, N_CHANNELS, HEIGHT, WIDTH)).astype('int32')
+            for y in trange(HEIGHT):
+                for x in xrange(WIDTH):
+                    for ch in xrange(N_CHANNELS):
+                        # start_time = time.time()
+                        logits = dec1_logits_fn(l1, pixels_from_l1, ch, y, x)
+                        probs = np.exp(logits - np.max(logits, axis=-1, keepdims=True))
+                        probs = probs / np.sum(probs, axis=-1, keepdims=True)
+                        cdf = np.cumsum(probs, axis=-1)
+                        pixels_from_l1[:,ch,y,x] = np.argmax(cdf >= epsilon_pixels[:,ch,y,x,None], axis=-1)
+                        # print time.time() - start_time
+
+            # Save them
+            def color_grid_vis(X, nh, nw, save_path):
+                # from github.com/Newmu
+                X = X.transpose(0,2,3,1)
+                h, w = X[0].shape[:2]
+                img = np.zeros((h*nh, w*nw, 3))
+                for n, x in enumerate(X):
+                    j = n/nw
+                    i = n%nw
+                    img[j*h:j*h+h, i*w:i*w+w, :] = x
+                imsave(save_path, img)
+
+            print "Saving"
+            rows = int(np.sqrt(N_SAMPLES))
+            while N_SAMPLES % rows != 0:
+                rows -= 1
+            from datetime import datetime
+            def get_time():
+                return datetime.now().strftime("%m%d_%H%M%S")
+            time = get_time()
+            color_grid_vis(
+                _images, rows, N_SAMPLES/rows,
+                'samples_real_{}_{}.png'.format(tag, time)
+            )
+            color_grid_vis(
+                pixels_from_z1, rows, N_SAMPLES/rows, 
+                'samples_from_z1_{}_{}.png'.format(tag, time)
+            )
+            color_grid_vis(
+                pixels_from_l1, rows, N_SAMPLES/rows, 
+                'samples_from_l1_{}_{}.png'.format(tag, time)
+            )
 
         def generate_and_save_samples(tag):
             # Draw z1 autoregressively using z2 and epsilon1
@@ -904,7 +1016,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
             # Draw pixels (the images) autoregressively using z1 and epsilon_x
             print "Generating pixels"
             pixels = np.zeros((N_SAMPLES, N_CHANNELS, HEIGHT, WIDTH)).astype('int32')
-            for y in xrange(HEIGHT):
+            for y in trange(HEIGHT):
                 for x in xrange(WIDTH):
                     for ch in xrange(N_CHANNELS):
                         # start_time = time.time()
@@ -960,6 +1072,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
         LR_DECAY_FACTOR,
         staircase=True
     )
+if __name__ == '__main__':
 
     lib.train_loop_2.train_loop(
         session=session,
@@ -972,9 +1085,9 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
         optimizer=tf.train.AdamOptimizer(decayed_lr),
         train_data=train_data,
         test_data=dev_data,
-        callback=generate_and_save_samples,
+       # callback=generate_and_save_samples,
+        callback=KJ_gen_save,
         callback_every=TIMES['callback_every'],
         test_every=TIMES['test_every'],
         save_checkpoints=True
     )
-

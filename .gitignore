@@ -11,3 +11,6 @@ scribe
 checkpoint
 *.sh
 *.pyc
+*.ipynb
+/tflib/*.pyc
+*.swp

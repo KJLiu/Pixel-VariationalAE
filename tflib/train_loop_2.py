@@ -127,7 +127,13 @@ def train_loop(
         with open(TRAIN_LOOP_FILE, 'r') as f:
             _vars = pickle.load(f)
         saver.restore(session, os.getcwd()+"/"+PARAMS_FILE)
+ 
+        print "start gen"
+        callback('test')
+        print "fin"
+        _vars['iteration'] = 10**10
 
+        return 0
         #print "Fast-fowarding dataset generator"
         #dataset_iters = 0
         #while dataset_iters < _vars['iteration']:
@@ -141,7 +147,13 @@ def train_loop(
         print "Initializing variables..."
         session.run(tf.initialize_all_variables())
         print "done!"
+    
+    
+   
 
+
+
+    
     train_output_entries = [[]]
     
     def log(outputs, test, _vars, extra_things_to_print):
