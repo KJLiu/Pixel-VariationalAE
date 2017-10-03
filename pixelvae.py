@@ -297,8 +297,8 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
     all_images = tf.placeholder(tf.int32, shape=[None, N_CHANNELS, HEIGHT, WIDTH], name='all_images')
     all_latents1 = tf.placeholder(tf.float32, shape=[None, LATENT_DIM_1, LATENTS1_HEIGHT, LATENTS1_WIDTH], name='all_latents1')
 
-    split_images = tf.split(value=all_images, num_split=len(DEVICES), split_dim=0)
-    split_latents1 = tf.split(value=all_latents1, num_split=len(DEVICES), split_dim=0)
+    split_images = tf.split(value=all_images, num_or_size_splits=len(DEVICES), axis=0)
+    split_latents1 = tf.split(value=all_latents1, num_or_size_splits=len(DEVICES), axis=0)
 
     tower_cost = []
     tower_outputs1_sample = []
@@ -445,7 +445,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
                     output /= 2
 
                     # Warning! Because of the masked convolutions it's very important that masked_images comes first in this concat
-                    output = tf.concat(1, [masked_images, output])
+                    output = tf.concat([masked_images, output],1)
 
                     if WIDTH == 64:
                         output = ResidualBlock('Dec1.Pix2Res', input_dim=2*DIM_0, output_dim=DIM_PIX_1, filter_size=3, mask_type=('b', N_CHANNELS), inputs=output)
@@ -521,7 +521,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
                     # Make the variance of output and masked_targets roughly match
                     output /= 2
 
-                    output = tf.concat(1, [masked_targets, output])
+                    output = tf.concat([masked_targets, output],1)
 
                     if LATENTS1_WIDTH == 16:
                         output = ResidualBlock('Dec2.Pix2Res', input_dim=2*DIM_2, output_dim=DIM_PIX_2, filter_size=3, mask_type=('b', PIX_2_N_BLOCKS), he_init=True, inputs=output)
@@ -626,7 +626,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
                         masked_images = lib.ops.conv2d.Conv2D('DecFull.Pix1', input_dim=N_CHANNELS, output_dim=dim, filter_size=5, inputs=images, mask_type=('a', N_CHANNELS), he_init=False)
 
                     # Warning! Because of the masked convolutions it's very important that masked_images comes first in this concat
-                    output = tf.concat(1, [masked_images, output])
+                    output = tf.concat([masked_images, output],1)
 
                     output = ResidualBlock('DecFull.Pix2Res', input_dim=2*dim,   output_dim=DIM_PIX_1, filter_size=3, mask_type=('b', N_CHANNELS), inputs=output)
                     output = ResidualBlock('DecFull.Pix3Res', input_dim=DIM_PIX_1, output_dim=DIM_PIX_1, filter_size=3, mask_type=('b', N_CHANNELS), inputs=output)
@@ -646,7 +646,7 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
                 )
 
             def split(mu_and_logsig):
-                mu, logsig = tf.split(value=mu_and_logsig, num_split=2, split_dim=1)
+                mu, logsig = tf.split(value=mu_and_logsig, num_or_size_splits=2, axis=1)
                 sig = 0.5 * (tf.nn.softsign(logsig)+1)
                 logsig = tf.log(sig)
                 return mu, logsig, sig
@@ -788,11 +788,11 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
                 tower_outputs1_sample.append(outputs1_sample)
 
     full_cost = tf.reduce_mean(
-        tf.concat(0, [tf.expand_dims(x, 0) for x in tower_cost]), 0
+        tf.concat([tf.expand_dims(x, 0) for x in tower_cost],0), 0
     )
 
     if MODE == 'two_level':
-        full_outputs1_sample = tf.concat(0, tower_outputs1_sample)
+        full_outputs1_sample = tf.concat(tower_outputs1_sample,0)
 
     # Sampling
 
