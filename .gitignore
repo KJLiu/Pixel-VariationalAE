@@ -3,3 +3,10 @@ pull
 push
 experiment_tools.py
 scribe
+*.png
+*.hdf5
+*ckpt*
+*.pkl
+*.ndjson
+checkpoint
+*.sh
