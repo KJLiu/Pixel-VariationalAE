@@ -8,8 +8,8 @@ from fuel.schemes import ShuffledScheme, SequentialScheme
 from fuel.streams import DataStream
 # from fuel.transformers.image import RandomFixedSizeCrop
 
-PATH = '/data/lisatmp3/faruk/lsun_bedrooms_64_hdf5/lsun_bedrooms_2727000_64px.hdf5'
-
+#PATH = '/data/lisatmp3/faruk/lsun_bedrooms_64_hdf5/lsun_bedrooms_2727000_64px.hdf5'
+PATH = 'Bedroom.hdf5'
 from scipy.misc import imsave
 def color_grid_vis(X, nh, nw, save_path):
     # from github.com/Newmu

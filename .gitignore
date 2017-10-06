@@ -10,3 +10,4 @@ scribe
 *.ndjson
 checkpoint
 *.sh
+*.pyc

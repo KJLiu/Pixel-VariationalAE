@@ -5,7 +5,7 @@ Ishaan Gulrajani, Kundan Kumar, Faruk Ahmed, Adrien Ali Taiga, Francesco Visin, 
 
 import os, sys
 sys.path.append(os.getcwd())
-
+os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 N_GPUS = 1
 
 try: # This only matters on Ishaan's computer
@@ -150,9 +150,9 @@ elif SETTINGS == '64px_small':
     PIX_2_N_BLOCKS = 1
 
     TIMES = {
-        'test_every': 10000,
+        'test_every': 25000,
         'stop_after': 200000,
-        'callback_every': 1000
+        'callback_every': 25000
     }
 
     VANILLA = False
